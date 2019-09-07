@@ -14,7 +14,8 @@ find_package(catkin REQUIRED COMPONENTS
     tf
     cv_bridge
     camera_models
-    image_transport)
+    image_transport
+    sensor_msgs)
 
 find_package(OpenCV REQUIRED)
 
@@ -62,3 +63,8 @@ target_link_libraries(kitti_odom_test vins_lib)
 add_executable(kitti_gps_test src/KITTIGPSTest.cpp)
 target_link_libraries(kitti_gps_test vins_lib) 
 
+add_executable(vins_node_lidar src/rosNodeTest_1.cpp)
+target_link_libraries(vins_node_lidar vins_lib) 
+
+add_executable(huajpg_node src/featureTracker/huajpg_node.cpp)
+target_link_libraries(huajpg_node vins_lib) 

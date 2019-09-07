@@ -27,8 +27,14 @@ queue<sensor_msgs::ImuConstPtr> imu_buf;
 queue<sensor_msgs::PointCloudConstPtr> feature_buf;
 queue<sensor_msgs::ImageConstPtr> img0_buf;
 queue<sensor_msgs::ImageConstPtr> img1_buf;
+queue<sensor_msgs::FluidPressurePtr> lidar_buf;
 std::mutex m_buf;
 
+void lidar_callback(const sensor_msgs::FluidPressurePtr &lidar_msg){
+    m_buf.lock();
+    lidar_buf.push(lidar_msg);
+    m_buf.unlock();
+}
 
 void img0_callback(const sensor_msgs::ImageConstPtr &img_msg)
 {
@@ -235,7 +241,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_feature = n.subscribe("/feature_tracker/feature", 20, feature_callback);
     ros::Subscriber sub_img0 = n.subscribe(IMAGE0_TOPIC, 10, img0_callback);
     ros::Subscriber sub_img1 = n.subscribe(IMAGE1_TOPIC, 10, img1_callback);
-
+    ros::Subscriber sub_lidar = n.subscribe("/lidar_ns/lidar_raw", 10, lidar_callback);
     std::thread sync_thread{sync_process};
     ros::spin();
 
