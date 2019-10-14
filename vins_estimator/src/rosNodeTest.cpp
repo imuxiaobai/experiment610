@@ -20,6 +20,7 @@
 #include "estimator/estimator.h"
 #include "estimator/parameters.h"
 #include "utility/visualization.h"
+// #include "./utility/geometry_math_type.h"
 
 Estimator estimator;
 
@@ -27,6 +28,8 @@ queue<sensor_msgs::ImuConstPtr> imu_buf;
 queue<sensor_msgs::PointCloudConstPtr> feature_buf;
 queue<sensor_msgs::ImageConstPtr> img0_buf;
 queue<sensor_msgs::ImageConstPtr> img1_buf;
+// queue<std::pair<double, Eigen::Quaterniond>> px4_buf;
+queue<std::pair<double, Eigen::Vector3d>> px4_buf;
 std::mutex m_buf;
 
 
@@ -44,6 +47,24 @@ void img1_callback(const sensor_msgs::ImageConstPtr &img_msg)
     m_buf.unlock();
 }
 
+void px4_callback(const sensor_msgs::ImuConstPtr &px4_msg){
+    m_buf.lock();
+    double time = px4_msg->header.stamp.toSec();
+    Eigen::Quaterniond tmp_q;
+    tmp_q.w() = px4_msg->orientation.w;
+    tmp_q.x() = px4_msg->orientation.x;
+    tmp_q.y() = - px4_msg->orientation.y;
+    tmp_q.z() = - px4_msg->orientation.z;
+    Eigen::Vector3d tmp_euler;
+    // estimator.get_euler_from_q(tmp_euler, tmp_q);
+    get_euler_from_q(tmp_euler, tmp_q);
+    // std::pair<double, Eigen::Quaterniond> t_tmp_q(time, tmp_q);
+    std::pair<double, Eigen::Vector3d> t_tmp_euler(time, tmp_euler);
+    // px4_buf.push(t_tmp_q);
+    px4_buf.push(t_tmp_euler);
+    m_buf.unlock();
+    return;
+}
 
 cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg)
 {
@@ -72,15 +93,22 @@ void sync_process()
 {
     while(1)
     {
+        TicToc test1;
         if(STEREO)
         {
             cv::Mat image0, image1;
             std_msgs::Header header;
+            int cnt = 0;
+            Eigen::Quaterniond* q = NULL;
+            Eigen::Vector3d euler_tmp(0,0,0);
+            Eigen::Quaterniond tmp_q;
             double time = 0;
             m_buf.lock();
+            // std::cout << px4_buf.size() << std::endl;
             // ros::Time _s_t = ros::Time::now();
             while(img0_buf.size()>2){img0_buf.pop();}
             while(img1_buf.size()>2){img1_buf.pop();}
+            // while(px4_buf.size()>5){px4_buf.pop();}
             if (!img0_buf.empty() && !img1_buf.empty())
             {
                 double time0 = img0_buf.front()->header.stamp.toSec();
@@ -106,12 +134,50 @@ void sync_process()
                     image1 = getImageFromMsg(img1_buf.front());
                     img1_buf.pop();
                     // std::cout << "sysnc dt: " << ros::Time::now().toSec() - time0 << std::endl;
+                    test1.tic();
                     //printf("find img0 and img1\n");
+
+                    // std::cout << "test1" << std::endl;
+                    if(!px4_buf.empty()){
+                        
+                        // while(!px4_buf.empty() && px4_buf.front().first < time - 0.01){
+                        while(!px4_buf.empty() && px4_buf.front().first < time){
+                            euler_tmp(0) += px4_buf.front().second(0);
+                            euler_tmp(1) += px4_buf.front().second(1);
+                            euler_tmp(2) += px4_buf.front().second(2);
+                            px4_buf.pop();
+                            cnt++;
+                        // std::cout << "test2" << std::endl;
+                        }
+                        // if(!px4_buf.empty()){
+                        // // std::cout << "test3: " << px4_buf.front().second.x() << std::endl;
+                        //     q = &px4_buf.front().second;
+                        //     px4_buf.pop();  
+                        // // std::cout << "test5" << std::endl;
+                        // }
+                        // else{
+                        // // std::cout << "test4" << std::endl;
+                        //     q = NULL;
+                        // }    
+                    }
                 }
             }
             m_buf.unlock();
+            if(cnt > 0){
+                euler_tmp(0) = euler_tmp(0) / double(cnt);
+                euler_tmp(1) = euler_tmp(1) / double(cnt);
+                euler_tmp(2) = euler_tmp(2) / double(cnt);
+                cnt = 0;
+                // estimator.get_q_from_euler(tmp_q, euler_tmp);
+                get_q_from_euler(tmp_q, euler_tmp);
+                q = &tmp_q;
+                estimator.inputPx4(q);
+            }       
+
             if(!image0.empty())
                 estimator.inputImage(time, image0, image1);
+            if(test1.toc() > 10.0)
+                std::cout << "test1: " << test1.toc() << std::endl;
             // std::cout << "ddt: " << ros::Time::now().toSec() - _s_t.toSec() << std::endl;
         }
         else
@@ -235,6 +301,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_feature = n.subscribe("/feature_tracker/feature", 20, feature_callback);
     ros::Subscriber sub_img0 = n.subscribe(IMAGE0_TOPIC, 10, img0_callback);
     ros::Subscriber sub_img1 = n.subscribe(IMAGE1_TOPIC, 10, img1_callback);
+    // ros::Subscriber sub_px4 = n.subscribe("/mavros1/imu/data", 10, px4_callback);
 
     std::thread sync_thread{sync_process};
     ros::spin();

@@ -37,7 +37,7 @@
 #include "../featureTracker/feature_tracker.h"
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
-
+#include "../factor/px4_factor.h"
 
 class Estimator
 {
@@ -80,6 +80,15 @@ class Estimator
     void fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity);
     bool IMUAvailable(double t);
     void initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVector);
+
+    void inputPx4(const Eigen::Quaterniond* px4_data);
+    void changeAltInit();
+    void changeAltRet();
+
+    // void get_dcm_from_q(Eigen::Matrix3d &dcm, const Eigen::Quaterniond &q);
+    // void get_euler_from_R(Eigen::Vector3d &e, const Eigen::Matrix3d &R);
+    // void get_euler_from_q(Eigen::Vector3d &e, const Eigen::Quaterniond &q);
+    // void get_q_from_euler(Eigen::Quaterniond &q, const Eigen::Vector3d &e);
 
     enum SolverFlag
     {
@@ -174,4 +183,12 @@ class Estimator
     bool initFirstPoseFlag;
 
     ros::Publisher _tk_image_pub;
+
+    Eigen::Quaterniond _px4_data;
+
+    std::mutex _m_buf;
+
+    int USE_PX4 = 0;
+
+    int px4_init = 1;
 };

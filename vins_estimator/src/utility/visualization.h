@@ -28,6 +28,7 @@
 #include "../estimator/estimator.h"
 #include "../estimator/parameters.h"
 #include <fstream>
+// #include "geometry_math_type.h"
 
 extern ros::Publisher pub_odometry;
 extern ros::Publisher pub_path, pub_pose;
@@ -39,6 +40,7 @@ extern nav_msgs::Path path;
 extern ros::Publisher pub_pose_graph;
 extern int IMAGE_ROW, IMAGE_COL;
 extern ros::Publisher pub_image;
+double returnDelayTime();
 
 void registerPub(ros::NodeHandle &n);
 

@@ -9,6 +9,7 @@
 
 #include "estimator.h"
 #include "../utility/visualization.h"
+// #include "../utility/geometry_math_type.h"
 
 Estimator::Estimator(): f_manager{Rs}
 {
@@ -21,6 +22,90 @@ Estimator::Estimator(): f_manager{Rs}
     initR = Eigen::Matrix3d::Identity();
     inputImageCnt = 0;
     initFirstPoseFlag = false;
+}
+
+void Estimator::inputPx4(const Eigen::Quaterniond* px4_data){//todo 枷锁
+    TicToc test2;
+    test2.tic();
+    Eigen::Quaterniond last_px4_data;
+    if(px4_data == NULL)
+    {
+        std::cout << "px4_data is NULL" << std::endl;
+        return;
+    }    
+
+    if(px4_init){
+        last_px4_data = *px4_data;
+        _px4_data = *px4_data; 
+        USE_PX4 = 1;
+        px4_init = 0;
+        return;
+    }
+
+    // _m_buf.lock();
+    _px4_data = *px4_data;
+    // if((_px4_data.x() < last_px4_data.x() - 0.02 || _px4_data.x() > last_px4_data.x() + 0.02)||(_px4_data.y() < last_px4_data.y() - 0.02 || _px4_data.y() > last_px4_data.y() + 0.02))
+    // {
+    //     std::cout << "un_use_px4: 0"  << std::endl;
+    //     _px4_data = last_px4_data;
+    //     // USE_PX4 = 0;
+    //     return;
+    // }
+    USE_PX4 = 1;    
+    last_px4_data = _px4_data;
+
+    // _m_buf.unlock();
+    // std::cout << "use_px4: 1"  << std::endl;
+    std::cout << "test2: " << test2.toc() << std::endl;
+
+}
+
+void Estimator::changeAltInit(){
+    // std::cout << "use_px4: " << std::endl;
+    Eigen::Vector3d euler_px4;
+    Eigen::Vector3d euler_raw;
+    Eigen::Vector3d euler_ret;
+    Eigen::Quaterniond _q;
+    _q.x() = para_Pose[WINDOW_SIZE][3];
+    _q.y() = para_Pose[WINDOW_SIZE][4];
+    _q.z() = para_Pose[WINDOW_SIZE][5];
+    _q.w() = para_Pose[WINDOW_SIZE][6];
+    get_euler_from_q(euler_raw, _q);
+    get_euler_from_q(euler_px4, _px4_data);
+    // std::cout << "euler_vins" << euler_raw << std::endl;
+    // std::cout << "euler_px4" << euler_px4 << std::endl;
+    euler_ret(0) = euler_px4(0);
+    euler_ret(1) = euler_px4(1);
+    euler_ret(2) = euler_raw(2);
+    get_q_from_euler(_q, euler_ret);
+    para_Pose[WINDOW_SIZE][3] = _q.x();
+    para_Pose[WINDOW_SIZE][4] = _q.y();
+    para_Pose[WINDOW_SIZE][5] = _q.z();
+    para_Pose[WINDOW_SIZE][6] = _q.w();
+    // USE_PX4 = 1;
+}
+
+void Estimator::changeAltRet(){
+    // std::cout << "test3" << std::endl;
+    Eigen::Vector3d euler_px4;
+    Eigen::Vector3d euler_raw;
+    Eigen::Vector3d euler_ret;
+    Eigen::Quaterniond _q;
+    _q.x() = para_Pose[WINDOW_SIZE][3];
+    _q.y() = para_Pose[WINDOW_SIZE][4];
+    _q.z() = para_Pose[WINDOW_SIZE][5];
+    _q.w() = para_Pose[WINDOW_SIZE][6];
+    get_euler_from_q(euler_raw, _q);
+    get_euler_from_q(euler_px4, _px4_data);
+    euler_ret(0) = euler_px4(0);
+    euler_ret(1) = euler_px4(1);
+    euler_ret(2) = euler_raw(2);
+    get_q_from_euler(_q, euler_ret);
+    para_Pose[WINDOW_SIZE][3] = _q.x();
+    para_Pose[WINDOW_SIZE][4] = _q.y();
+    para_Pose[WINDOW_SIZE][5] = _q.z();
+    para_Pose[WINDOW_SIZE][6] = _q.w();
+    USE_PX4 = 0;
 }
 
 void Estimator::setParameter()
@@ -60,7 +145,7 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
     
     if(MULTIPLE_THREAD)  
     {     
-        // if(inputImageCnt % 2 == 0)
+        if(inputImageCnt % 2 == 0)
         {
             mBuf.lock();
             featureBuf.push(make_pair(t, featureFrame));
@@ -802,10 +887,16 @@ void Estimator::vector2double()
         para_Feature[i][0] = dep(i);
 
     para_Td[0][0] = td;
+    // if(USE_PX4){
+    //     changeAltInit();
+    // }
 }
 
 void Estimator::double2vector()
 {
+    // if(USE_PX4){
+    //     changeAltRet();
+    // }
     Vector3d origin_R0 = Utility::R2ypr(Rs[0]);
     Vector3d origin_P0 = Ps[0];
 
@@ -970,12 +1061,16 @@ void Estimator::optimization()
     for (int i = 0; i < frame_count + 1; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
+        problem.AddParameterBlock(para_Pose[i], 7, local_parameterization);
+        // problem.AddParameterBlock(&(para_Pose[i][0]), 3);
+        // problem.AddParameterBlock(&(para_Pose[i][3]), 4);
         if(USE_IMU)
             problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
     }
     if(!USE_IMU)
         problem.SetParameterBlockConstant(para_Pose[0]);
+    // problem.SetParameterBlockConstant(&(para_Pose[0][3]));
+
 
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
@@ -1015,7 +1110,16 @@ void Estimator::optimization()
             problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
         }
     }
-
+    TicToc test3;
+    test3.tic();
+    if(USE_PX4){
+    // if(0){
+        // std::cout << "one shot " << std::endl;
+        PX4Factor* px4_factor = new PX4Factor(_px4_data);
+        problem.AddResidualBlock(px4_factor, NULL, para_Pose[frame_count - 1]);
+        USE_PX4 = 0;
+    }
+    std::cout << "test3: " << test3.toc() << std::endl;
     int f_m_cnt = 0;
     int feature_index = -1;
     for (auto &it_per_id : f_manager.feature)
@@ -1078,9 +1182,12 @@ void Estimator::optimization()
         options.max_solver_time_in_seconds = SOLVER_TIME * 4.0 / 5.0;
     else
         options.max_solver_time_in_seconds = SOLVER_TIME;
+    TicToc test4;
+    test4.tic();
     TicToc t_solver;
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
+    std::cout << "test4: " << test4.toc() << std::endl;
     // cout << summary.BriefReport() << endl;
     ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());
@@ -1562,3 +1669,69 @@ void Estimator::updateLatestStates()
     }
     mBuf.unlock();
 }
+
+
+    // void Estimator::get_dcm_from_q(Eigen::Matrix3d &dcm, const Eigen::Quaterniond &q) {
+    //     float a = q.w();
+    //     float b = q.x();
+    //     float c = q.y();
+    //     float d = q.z();
+    //     float aSq = a*a;
+    //     float bSq = b*b;
+    //     float cSq = c*c;
+    //     float dSq = d*d;
+    //     dcm(0, 0) = aSq + bSq - cSq - dSq; 
+    //     dcm(0, 1) = 2 * (b * c - a * d);
+    //     dcm(0, 2) = 2 * (a * c + b * d);
+    //     dcm(1, 0) = 2 * (b * c + a * d);
+    //     dcm(1, 1) = aSq - bSq + cSq - dSq;
+    //     dcm(1, 2) = 2 * (c * d - a * b);
+    //     dcm(2, 0) = 2 * (b * d - a * c);
+    //     dcm(2, 1) = 2 * (a * b + c * d);
+    //     dcm(2, 2) = aSq - bSq - cSq + dSq;
+    // }
+
+    // void Estimator::get_euler_from_R(Eigen::Vector3d &e, const Eigen::Matrix3d &R) {
+    //     float phi = atan2f(R(2, 1), R(2, 2));
+    //     float theta = asinf(-R(2, 0));
+    //     float psi = atan2f(R(1, 0), R(0, 0));
+    //     float pi = M_PI;
+
+    //     if (fabsf(theta - pi/2.0f) < 1.0e-3) {
+    //         phi = 0.0f;
+    //         psi = atan2f(R(1, 2), R(0, 2));
+    //     } else if (fabsf(theta + pi/2.0f) < 1.0e-3) {
+    //         phi = 0.0f;
+    //         psi = atan2f(-R(1, 2), -R(0, 2));
+    //     }
+    //     e(0) = phi;//滚转
+    //     e(1) = theta;//抚养
+    //     e(2) = psi;//片行
+    // }
+
+    // void Estimator::get_euler_from_q(Eigen::Vector3d &e, const Eigen::Quaterniond &q) {
+    //     Eigen::Matrix3d temp_R;
+    //     get_dcm_from_q(temp_R, q);
+    //     get_euler_from_R(e, temp_R);
+    // }
+
+    // void Estimator::get_q_from_euler(Eigen::Quaterniond &q, const Eigen::Vector3d &e) {
+
+    //     float cosPhi_2 = float(cos(e(0) / float(2.0)));
+    //     float cosTheta_2 = float(cos(e(1) / float(2.0)));
+    //     float cosPsi_2 = float(cos(e(2) / float(2.0)));
+    //     float sinPhi_2 = float(sin(e(0) / float(2.0)));
+    //     float sinTheta_2 = float(sin(e(1) / float(2.0)));
+    //     float sinPsi_2 = float(sin(e(2) / float(2.0)));
+    //     q.w() = cosPhi_2 * cosTheta_2 * cosPsi_2 +
+    //             sinPhi_2 * sinTheta_2 * sinPsi_2;
+    //     q.x() = sinPhi_2 * cosTheta_2 * cosPsi_2 -
+    //             cosPhi_2 * sinTheta_2 * sinPsi_2;
+    //     q.y() = cosPhi_2 * sinTheta_2 * cosPsi_2 +
+    //             sinPhi_2 * cosTheta_2 * sinPsi_2;
+    //     q.z() = cosPhi_2 * cosTheta_2 * sinPsi_2 -
+    //             sinPhi_2 * sinTheta_2 * cosPsi_2;
+    //     q.normalize();
+
+    // }
+
